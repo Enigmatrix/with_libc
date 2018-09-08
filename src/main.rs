@@ -1,7 +1,13 @@
 #![feature(slice_patterns)]
 
+extern crate ar;
 extern crate clap;
 extern crate elf;
+extern crate reqwest;
+extern crate select;
+extern crate xz2;
+extern crate tar;
+
 
 mod libc;
 mod ld;
@@ -32,6 +38,6 @@ fn main() -> Result<(), Box<Error>> {
     let prog_path = matches.value_of("PROGRAM").unwrap();
         
     let libc = Libc::from_path(libc_path)?;
-    println!("{:?}", libc);
+    println!("{:?}", download_ld(&libc));
     Ok(())
 }

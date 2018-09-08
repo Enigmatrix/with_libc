@@ -24,9 +24,9 @@ impl Error for LibcParseError {
 
 #[derive(Debug)]
 pub struct Libc {
-    linux_platform: String,
-    version: String,
-    architecture: Architecture
+    pub linux_platform: String,
+    pub version: String,
+    pub architecture: Architecture
 }
 
 #[derive(Debug)]
