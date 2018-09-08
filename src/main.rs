@@ -4,12 +4,14 @@ extern crate clap;
 extern crate elf;
 
 mod libc;
+mod ld;
 
+use std::error::Error;
 use clap::{App, Arg};
 use libc::*;
+use ld::*;
 
-
-fn main() {
+fn main() -> Result<(), Box<Error>> {
     let matches = App::new("with_libc")
        .version("1.0")
        .about("Change a program's libc to a new one, while automatically setting up the ld.so. libc and ld will be in a new subdirectory.")
@@ -29,6 +31,7 @@ fn main() {
     let libc_path = matches.value_of("libc_path").unwrap();
     let prog_path = matches.value_of("PROGRAM").unwrap();
         
-    let libc = Libc::from_path(libc_path);
+    let libc = Libc::from_path(libc_path)?;
     println!("{:?}", libc);
+    Ok(())
 }

@@ -1,8 +1,26 @@
 use elf::File;
+use elf::ParseError;
 use elf::types::Machine;
 use std::error::Error;
 use std::path::Path;
-use std::fmt::{self};
+use std::fmt;
+
+
+#[derive(Debug)]
+pub enum LibcParseError{
+    ELFReadError(ParseError),
+    UnsupportedArchitecture(Machine),
+    InvalidLibc,
+}
+
+impl fmt::Display for LibcParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "")
+    }
+}
+
+impl Error for LibcParseError {
+}
 
 #[derive(Debug)]
 pub struct Libc {
@@ -33,17 +51,20 @@ fn find_subsequence<T>(haystack: &[T], needle: &[T]) -> Option<usize>
     haystack.windows(needle.len()).position(|window| window == needle)
 }
 
-fn get_version_info(libc: &File) -> Result<(String, String), &'static str>{
+fn get_version_info(libc: &File) -> Result<(String, String), LibcParseError>{
     let rodata = &libc.get_section(".rodata")
-        .ok_or("Libc path does not point to valid libc")?
+        .ok_or(LibcParseError::InvalidLibc)?
         .data.clone()[..];
 
     let needle = b"GNU C Library (";
     let idx = find_subsequence(rodata, needle)
-        .ok_or("Libc path does not point to valid libc")?;
+        .ok_or(LibcParseError::InvalidLibc)?;
     let start_idx = idx + needle.len();
+
     let version_info_extra = &rodata[start_idx..];
-    let end_idx = find_subsequence(version_info_extra, b")").unwrap();
+    let end_idx = find_subsequence(version_info_extra, b")")
+        .ok_or(LibcParseError::InvalidLibc)?;
+
     let version_info:Vec<_> = (&version_info_extra[..end_idx])
         .split(|&v| v as char == ' ')
         .map(|v| String::from_utf8(v.to_vec()).unwrap())
@@ -52,24 +73,25 @@ fn get_version_info(libc: &File) -> Result<(String, String), &'static str>{
     match &version_info[..]{
         [linux_platform, _, version,..] =>
             Ok((linux_platform.to_string(), version.to_string())),
-        _ => Err("Unsupported version information")
+        _ => Err(LibcParseError::InvalidLibc)
     }
 }
 
-fn get_architecture(libc: &File) -> Result<Architecture, &'static str> {
+fn get_architecture(libc: &File) -> Result<Architecture, LibcParseError> {
     let headers = libc.ehdr;
     match headers.machine {
         Machine(3) => Ok(Architecture::i386),
         Machine(62) => Ok(Architecture::amd64),
         Machine(40) => Ok(Architecture::armhf),
         Machine(183) => Ok(Architecture::arm64),
-        _ => Err("Unsupported machine architecture")
+        x => Err(LibcParseError::UnsupportedArchitecture(x))
     }
 }
 
 impl Libc{
     pub fn from_path<T: AsRef<Path>>(path: T) -> Result<Libc, Box<Error>>{
-        let libc = File::open_path(&path).map_err(|e| format!("{:?}", e))?;
+        let libc = File::open_path(&path)
+            .map_err(|e| LibcParseError::ELFReadError(e) )?;
 
         let (linux_platform, version) = get_version_info(&libc)?;
         let architecture = get_architecture(&libc)?;
