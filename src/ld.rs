@@ -1,13 +1,31 @@
 use libc::Libc;
 use std::error::Error;
 use std::str;
+use std::path::Path;
+use std::path::PathBuf;
 use std::ffi::OsString;
 use select::document::Document;
 use select::predicate::{Attr, Class, Name, Descendant};
 use xz2::read::XzDecoder;
+use std::fmt;
 use tar;
 use ar;
 use reqwest;
+
+#[derive(Debug)]
+pub enum LdError {
+
+}
+
+impl fmt::Display for LdError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "")
+    }
+}
+
+impl Error for LdError {
+}
+
 
 fn ld_fname(version: String) -> OsString {
     let short_version = version.split("-").collect::<Vec<_>>()[0];
@@ -15,7 +33,7 @@ fn ld_fname(version: String) -> OsString {
     From::from(fname_string)
 }
 
-fn extract_ld(url: String, version: String) -> Result<(), Box<Error>> {
+fn extract_ld(url: String, download_dir:PathBuf, version: String) -> Result<(), Box<Error>> {
     let ld_fname_s = ld_fname(version);
     let ld_file_name = ld_fname_s.as_os_str();
 
@@ -30,15 +48,20 @@ fn extract_ld(url: String, version: String) -> Result<(), Box<Error>> {
         let mut archive = tar::Archive::new(xzdec);
 
         let ld_opt = archive.entries()?
-            .map(|e| e.unwrap())
+            .filter_map(|e| e.ok())
             .find(|e| Some(ld_file_name) ==
                   e.path().unwrap().file_name());
 
-        if let Some(ld) = ld_opt {
-            // ld.unpack(<path>);
+        if let Some(mut ld) = ld_opt {
+            let download_path = download_dir.join(ld_file_name);
+            ld.unpack(download_path)?;
+            return Ok(());
+        }
+        else{
+            return Err(From::from("um".to_string()));
         }
     }
-    Ok(())
+    Err(From::from("ok".to_string()))
 }
 
 fn get_deb_link(build_link: String, architecture: &String, version: &String) -> Result<String, Box<Error>> {
@@ -51,7 +74,7 @@ fn get_deb_link(build_link: String, architecture: &String, version: &String) -> 
         .find(|n| n.text() == download_text)
         .and_then(|a| a.attr("href"))
         .map(|link| link.to_string())
-        .ok_or(From::from("".to_string()))
+        .ok_or(From::from("deb".to_string()))
 }
 
 fn get_build_link(architecture:&String, version:&String) -> Result<String, Box<Error>> {
@@ -63,14 +86,21 @@ fn get_build_link(architecture:&String, version:&String) -> Result<String, Box<E
         .find(|n| architecture.eq(&n.text()))
         .and_then(|a| a.attr("href"))
         .map(|link| format!("https://launchpad.net{}", link))
-        .ok_or(From::from("".to_string()))
+        .ok_or(From::from("build".to_string()))
 }
 
-pub fn download_ld(libc: &Libc) -> Result<String, Box<Error>>{
+pub fn download_ld(libc: &Libc, download_dir: PathBuf) -> Result<(), Box<Error>>{
     let architecture = libc.architecture.to_string();
     let version = libc.version.to_string();
     let build_link = get_build_link(&architecture, &version)?;
     let deb_link = get_deb_link(build_link, &architecture, &version)?;
-    extract_ld(deb_link, version)?;
-    Ok("".to_string())
+    Ok(extract_ld(deb_link, download_dir, version)?)
 }
+
+pub fn ld_download_dir(libc_path: String, dir_path: String) -> Result<PathBuf, Box<Error>> {
+    let err:Box<Error> = From::from("wtf".to_string());
+    let path = Path::new(&libc_path);
+    let parent_dir = path.parent().ok_or(err)?;
+    Ok(parent_dir.join(dir_path).canonicalize()?)
+}
+
