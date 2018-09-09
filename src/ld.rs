@@ -9,27 +9,33 @@ use tar;
 use ar;
 use reqwest;
 
-fn download_and_extract_ld(url: String, version: String) -> Result<(), Box<Error>> {
-    let fname: OsString = From::from(format!("ld-{}.so", version.split("-").collect::<Vec<_>>()[0]));
+fn ld_fname(version: String) -> OsString {
+    let short_version = version.split("-").collect::<Vec<_>>()[0];
+    let fname_string = format!("ld-{}.so", short_version);
+    From::from(fname_string)
+}
+
+fn extract_ld(url: String, version: String) -> Result<(), Box<Error>> {
+    let ld_fname_s = ld_fname(version);
+    let ld_file_name = ld_fname_s.as_os_str();
+
     let deb_read = reqwest::get(&*url)?;
     let mut deb = ar::Archive::new(deb_read);
-    while let Some(entry_result) = deb.next_entry() {
-        let mut entry = entry_result.unwrap();
-        if str::from_utf8(entry.header().identifier()).unwrap() == "data.tar.xz"{
-            let xzdec = XzDecoder::new(entry);
-            let mut archive = tar::Archive::new(xzdec);
-            for entry_result in archive.entries()?{
-                let entry = entry_result.unwrap();
-                let path = entry.path()?;
-                let fname_res = path.file_name();
-                if let Some(fname_this) = fname_res {
-                    if &fname == fname_this {
-                        println!("{:?}, {:?}", fname_this, entry.path());
-                        break;
-                    }
-                }
-            }
-            break;
+
+    while let Some(Ok(entry)) = deb.next_entry() {
+        if str::from_utf8(entry.header().identifier())? != "data.tar.xz" {
+            continue
+        }
+        let xzdec = XzDecoder::new(entry);
+        let mut archive = tar::Archive::new(xzdec);
+
+        let ld_opt = archive.entries()?
+            .map(|e| e.unwrap())
+            .find(|e| Some(ld_file_name) ==
+                  e.path().unwrap().file_name());
+
+        if let Some(ld) = ld_opt {
+            // ld.unpack(<path>);
         }
     }
     Ok(())
@@ -65,6 +71,6 @@ pub fn download_ld(libc: &Libc) -> Result<String, Box<Error>>{
     let version = libc.version.to_string();
     let build_link = get_build_link(&architecture, &version)?;
     let deb_link = get_deb_link(build_link, &architecture, &version)?;
-    download_and_extract_ld(deb_link, version)?;
+    extract_ld(deb_link, version)?;
     Ok("".to_string())
 }

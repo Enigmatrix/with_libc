@@ -1,4 +1,5 @@
 #![feature(slice_patterns)]
+#![feature(box_syntax, box_patterns)]
 
 extern crate ar;
 extern crate clap;
