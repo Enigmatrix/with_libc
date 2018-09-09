@@ -26,7 +26,8 @@ impl Error for LibcParseError {
 pub struct Libc {
     pub linux_platform: String,
     pub version: String,
-    pub architecture: Architecture
+    pub libc_kind: String,
+    pub architecture: Architecture,
 }
 
 #[derive(Debug)]
@@ -51,7 +52,7 @@ fn find_subsequence<T>(haystack: &[T], needle: &[T]) -> Option<usize>
     haystack.windows(needle.len()).position(|window| window == needle)
 }
 
-fn get_version_info(libc: &File) -> Result<(String, String), LibcParseError>{
+fn get_version_info(libc: &File) -> Result<(String, String, String), LibcParseError>{
     let rodata = &libc.get_section(".rodata")
         .ok_or(LibcParseError::InvalidLibc)?
         .data.clone()[..];
@@ -71,8 +72,8 @@ fn get_version_info(libc: &File) -> Result<(String, String), LibcParseError>{
         .collect();
     
     match &version_info[..]{
-        [linux_platform, _, version,..] =>
-            Ok((linux_platform.to_string(), version.to_string())),
+        [linux_platform, libc_kind, version,..] =>
+            Ok((linux_platform.to_string(), libc_kind.to_string().to_lowercase(), version.to_string())),
         _ => Err(LibcParseError::InvalidLibc)
     }
 }
@@ -93,13 +94,14 @@ impl Libc{
         let libc = File::open_path(&path)
             .map_err(|e| LibcParseError::ELFReadError(e) )?;
 
-        let (linux_platform, version) = get_version_info(&libc)?;
+        let (linux_platform, libc_kind, version) = get_version_info(&libc)?;
         let architecture = get_architecture(&libc)?;
 
         Ok(Libc {
             linux_platform: linux_platform,
             version: version,
             architecture: architecture,
+            libc_kind: libc_kind
         })
     }
 }

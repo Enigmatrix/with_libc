@@ -7,6 +7,7 @@ extern crate elf;
 extern crate reqwest;
 extern crate select;
 extern crate xz2;
+extern crate flate2;
 extern crate tar;
 
 
@@ -47,6 +48,6 @@ fn main() -> Result<(), Box<Error>> {
     let download_dir = ld_download_dir(libc_path.to_string(), dir.to_string())?;
         
     let libc = Libc::from_path(libc_path)?;
-    println!("{:?}", download_ld(&libc, download_dir));
+    download_ld(&libc, download_dir)?;
     Ok(())
 }

@@ -6,7 +6,9 @@ use std::path::PathBuf;
 use std::ffi::OsString;
 use select::document::Document;
 use select::predicate::{Attr, Class, Name, Descendant};
+use std::io::Read;
 use xz2::read::XzDecoder;
+use flate2::read::GzDecoder;
 use std::fmt;
 use tar;
 use ar;
@@ -41,11 +43,16 @@ fn extract_ld(url: String, download_dir:PathBuf, version: String) -> Result<(), 
     let mut deb = ar::Archive::new(deb_read);
 
     while let Some(Ok(entry)) = deb.next_entry() {
-        if str::from_utf8(entry.header().identifier())? != "data.tar.xz" {
-            continue
-        }
-        let xzdec = XzDecoder::new(entry);
-        let mut archive = tar::Archive::new(xzdec);
+        let header = str::from_utf8(entry.header().identifier())?.to_string();
+        if !header.starts_with("data.tar") { continue }
+
+        let extension = header.split('.').collect::<Vec<_>>()[2];
+        let decoder: Box<Read> = match extension{
+            "xz" => Ok(box XzDecoder::new(entry) as Box<Read>),
+            "gz" => Ok(box GzDecoder::new(entry) as Box<Read>),
+            _ => Err("Invalid")
+        }?;
+        let mut archive = tar::Archive::new(decoder);
 
         let ld_opt = archive.entries()?
             .filter_map(|e| e.ok())
@@ -64,12 +71,12 @@ fn extract_ld(url: String, download_dir:PathBuf, version: String) -> Result<(), 
     Err(From::from("ok".to_string()))
 }
 
-fn get_deb_link(build_link: String, architecture: &String, version: &String) -> Result<String, Box<Error>> {
+fn get_deb_link(build_link: String, libc: &Libc) -> Result<String, Box<Error>> {
     let url = &*build_link;
     let builds = reqwest::get(url)?;
     let doc = Document::from_read(builds)?;
 
-    let download_text= format!("libc6_{}_{}.deb", version, architecture);
+    let download_text= format!("libc6_{}_{}.deb", libc.version, libc.architecture);
     doc.find(Class("download"))
         .find(|n| n.text() == download_text)
         .and_then(|a| a.attr("href"))
@@ -77,23 +84,24 @@ fn get_deb_link(build_link: String, architecture: &String, version: &String) -> 
         .ok_or(From::from("deb".to_string()))
 }
 
-fn get_build_link(architecture:&String, version:&String) -> Result<String, Box<Error>> {
-    let url = &*format!("https://launchpad.net/ubuntu/+source/glibc/{}", version);
+//TODO this is wrong! need to download ELIBC instead of LIBC sometimes
+fn get_build_link(libc: &Libc) -> Result<String, Box<Error>> {
+    let url = &*format!("https://launchpad.net/ubuntu/+source/{}/{}",
+        libc.libc_kind, libc.version);
     let search = reqwest::get(url)?;
     let doc = Document::from_read(search)?;
 
     doc.find(Descendant(Attr("id", "source-builds"), Name("a")))
-        .find(|n| architecture.eq(&n.text()))
+        .find(|n| libc.architecture.to_string().eq(&n.text()))
         .and_then(|a| a.attr("href"))
         .map(|link| format!("https://launchpad.net{}", link))
         .ok_or(From::from("build".to_string()))
 }
 
 pub fn download_ld(libc: &Libc, download_dir: PathBuf) -> Result<(), Box<Error>>{
-    let architecture = libc.architecture.to_string();
     let version = libc.version.to_string();
-    let build_link = get_build_link(&architecture, &version)?;
-    let deb_link = get_deb_link(build_link, &architecture, &version)?;
+    let build_link = get_build_link(libc)?;
+    let deb_link = get_deb_link(build_link, libc)?;
     Ok(extract_ld(deb_link, download_dir, version)?)
 }
 
