@@ -1,5 +1,7 @@
+#![feature(nll)]
 #![feature(slice_patterns)]
 #![feature(box_syntax, box_patterns)]
+#![feature(extern_prelude)]
 
 extern crate ar;
 extern crate clap;
@@ -9,12 +11,14 @@ extern crate select;
 extern crate xz2;
 extern crate flate2;
 extern crate tar;
+extern crate ansi_term;
 
-
-mod libc;
+mod log;
 mod ld;
+mod libc;
 
 use std::error::Error;
+use std::path::PathBuf;
 use clap::{App, Arg};
 use libc::*;
 use ld::*;
@@ -48,6 +52,9 @@ fn main() -> Result<(), Box<Error>> {
     let download_dir = ld_download_dir(libc_path.to_string(), dir.to_string())?;
         
     let libc = Libc::from_path(libc_path)?;
-    download_ld(&libc, download_dir)?;
+    let download_path = download_ld(&libc, download_dir)?;
+
+    set_interpreter(download_path, PathBuf::from(prog_path.to_string()))?;
+
     Ok(())
 }

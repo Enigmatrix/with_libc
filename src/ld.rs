@@ -1,4 +1,5 @@
 use libc::Libc;
+use std::process::Command;
 use std::error::Error;
 use std::str;
 use std::path::Path;
@@ -30,14 +31,15 @@ impl Error for LdError {
 
 
 fn ld_fname(version: String) -> OsString {
-    let short_version = version.split("-").collect::<Vec<_>>()[0];
+    let short_version = version.split('-').collect::<Vec<_>>()[0];
     let fname_string = format!("ld-{}.so", short_version);
     From::from(fname_string)
 }
 
-fn extract_ld(url: String, download_dir:PathBuf, version: String) -> Result<(), Box<Error>> {
+fn extract_ld(url: String, download_dir:PathBuf, version: String) -> Result<PathBuf, Box<Error>> {
     let ld_fname_s = ld_fname(version);
     let ld_file_name = ld_fname_s.as_os_str();
+    let download_path = download_dir.join(ld_file_name);
 
     let deb_read = reqwest::get(&*url)?;
     let mut deb = ar::Archive::new(deb_read);
@@ -45,9 +47,10 @@ fn extract_ld(url: String, download_dir:PathBuf, version: String) -> Result<(), 
     while let Some(Ok(entry)) = deb.next_entry() {
         let header = str::from_utf8(entry.header().identifier())?.to_string();
         if !header.starts_with("data.tar") { continue }
+        info!("Found {}", header);
 
         let extension = header.split('.').collect::<Vec<_>>()[2];
-        let decoder: Box<Read> = match extension{
+        let decoder = match extension{
             "xz" => Ok(box XzDecoder::new(entry) as Box<Read>),
             "gz" => Ok(box GzDecoder::new(entry) as Box<Read>),
             _ => Err("Invalid")
@@ -60,9 +63,10 @@ fn extract_ld(url: String, download_dir:PathBuf, version: String) -> Result<(), 
                   e.path().unwrap().file_name());
 
         if let Some(mut ld) = ld_opt {
-            let download_path = download_dir.join(ld_file_name);
-            ld.unpack(download_path)?;
-            return Ok(());
+            info!("Found ld in {:?}", ld.path().unwrap());
+            ld.unpack(download_path.clone())?;
+            info!("Unpacked ld into {:?}", download_path.clone());
+            return Ok(download_path);
         }
         else{
             return Err(From::from("um".to_string()));
@@ -84,10 +88,12 @@ fn get_deb_link(build_link: String, libc: &Libc) -> Result<String, Box<Error>> {
         .ok_or(From::from("deb".to_string()))
 }
 
-//TODO this is wrong! need to download ELIBC instead of LIBC sometimes
+// handle debian links too (meepwn/oneshot/libc-2.24.so)
+// from https://packages.debian.org/stretch/amd64/libc6/download
 fn get_build_link(libc: &Libc) -> Result<String, Box<Error>> {
     let url = &*format!("https://launchpad.net/ubuntu/+source/{}/{}",
         libc.libc_kind, libc.version);
+    info!("Build details: {}", url);
     let search = reqwest::get(url)?;
     let doc = Document::from_read(search)?;
 
@@ -98,11 +104,14 @@ fn get_build_link(libc: &Libc) -> Result<String, Box<Error>> {
         .ok_or(From::from("build".to_string()))
 }
 
-pub fn download_ld(libc: &Libc, download_dir: PathBuf) -> Result<(), Box<Error>>{
+pub fn download_ld(libc: &Libc, download_dir: PathBuf) -> Result<PathBuf, Box<Error>>{
     let version = libc.version.to_string();
     let build_link = get_build_link(libc)?;
+    info!("Build packages link: {}", build_link);
     let deb_link = get_deb_link(build_link, libc)?;
-    Ok(extract_ld(deb_link, download_dir, version)?)
+    info!("Deb download link: {}", deb_link);
+    let final_path = extract_ld(deb_link, download_dir, version)?;
+    Ok(final_path)
 }
 
 pub fn ld_download_dir(libc_path: String, dir_path: String) -> Result<PathBuf, Box<Error>> {
@@ -110,5 +119,16 @@ pub fn ld_download_dir(libc_path: String, dir_path: String) -> Result<PathBuf, B
     let path = Path::new(&libc_path);
     let parent_dir = path.parent().ok_or(err)?;
     Ok(parent_dir.join(dir_path).canonicalize()?)
+}
+
+pub fn set_interpreter(interpreter: PathBuf, prog_path: PathBuf) -> Result<(), Box<Error>>{
+    let err:Box<Error> = From::from("".to_string());
+    let err1:Box<Error> = From::from("".to_string());
+    let interpreter_path:&str = interpreter.to_str().ok_or(err)?;
+    let output = Command::new("patchelf")
+        .args(&["--set-interpreter", interpreter_path, prog_path.canonicalize()?.to_str().ok_or(err1)?])
+        .output()?;
+    println!("patchelf: {:?}", output);
+    Ok(())
 }
 

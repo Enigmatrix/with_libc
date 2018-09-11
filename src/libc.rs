@@ -92,16 +92,20 @@ fn get_architecture(libc: &File) -> Result<Architecture, LibcParseError> {
 impl Libc{
     pub fn from_path<T: AsRef<Path>>(path: T) -> Result<Libc, Box<Error>>{
         let libc = File::open_path(&path)
-            .map_err(|e| LibcParseError::ELFReadError(e) )?;
+            .map_err(LibcParseError::ELFReadError)?;
 
         let (linux_platform, libc_kind, version) = get_version_info(&libc)?;
         let architecture = get_architecture(&libc)?;
 
+        info!("{} for {} details:", libc_kind.to_uppercase(), linux_platform);
+        info!("\tversion: {}", version);
+        info!("\tmachine: {}", architecture);
+
         Ok(Libc {
-            linux_platform: linux_platform,
-            version: version,
-            architecture: architecture,
-            libc_kind: libc_kind
+            linux_platform,
+            version,
+            architecture,
+            libc_kind,
         })
     }
 }
